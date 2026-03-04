@@ -1,0 +1,121 @@
+{
+  "id": "328974298374",
+  "username": "oliverohrt",
+  "display_name": "Oliver Ohrt",
+  "handle": "Lavanic",
+  "emails": [
+    {
+      "value": "ohohrt@wisc.edu",
+      "type": "school",
+      "primary": true,
+      "verified": true
+    },
+    {
+      "value": "lavanic@example.com",
+      "type": "personal",
+      "primary": false,
+      "verified": false
+    }
+  ],
+  "phone": null,
+  "profile": {
+    "bio": "CS student",
+    "pronouns": "he/him",
+    "avatar_url": "https://cdn.example.com/avatars/oliver.png",
+    "location": {
+      "city": "Madison",
+      "region": "WI",
+      "country": "US"
+    },
+    "website": "https://oliverohrt.com",
+    "birthday": null
+  },
+  "education": [
+    {
+      "institution": "University of Wisconsin–Madison",
+      "program": "B.S. Computer Science",
+      "gpa": 4.00,
+      "start_date": "2023-09-01",
+      "expected_graduation": "2026-12-15",
+      "courses": [
+        "Data Structures",
+        "Algorithms",
+        "Operating Systems",
+        "Software Engineering"
+      ]
+    }
+  ],
+  "affiliations": [
+    {
+      "org": "Undergraduate Projects Lab",
+      "role": "Coordinator",
+      "since": "2024-12-01"
+    }
+  ],
+  "projects": [
+    {
+      "id": "proj_farm",
+      "name": "The Farm",
+      "type": "desktop_app",
+      "stack": [
+        "Rust",
+        "Tauri",
+        "Svelte",
+        "Neo4j"
+      ],
+      "status": "active",
+      "links": {
+        "repo": "https://github.com/Lavanic/the-farm",
+        "demo": null
+      },
+      "tags": [
+        "personal-hub",
+        "graph-db",
+        "automation"
+      ]
+    },
+    {
+      "id": "proj_json2gleam",
+      "name": "json2gleam",
+      "type": "cli_tool",
+      "stack": [
+        "Gleam"
+      ],
+      "status": "active",
+      "links": {
+        "repo": "https://github.com/Lavanic/json2gleam",
+        "demo": null
+      },
+      "tags": [
+        "codegen",
+        "json",
+        "types"
+      ]
+    }
+  ],
+  "preferences": {
+    "theme": {
+      "mode": "dark",
+      "accent_hex": "#E30B5D"
+    },
+    "notifications": {
+      "email": true,
+      "push": false,
+      "digest_frequency_days": 7
+    },
+    "privacy": {
+      "profile_visibility": "friends_only",
+      "share_activity": false
+    },
+    "experiments": {
+      "beta_features": true
+    }
+  },
+  "stats": {
+    "created_at": "2024-01-15T03:12:44Z",
+    "updated_at": "2026-03-03T23:30:00Z",
+    "login_count": 428,
+    "followers": 73,
+    "following": 112
+  }
+}
