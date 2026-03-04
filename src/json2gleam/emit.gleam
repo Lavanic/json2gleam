@@ -300,3 +300,187 @@ fn is_uppercase(c: String) -> Bool {
     _ -> False
   }
 }
+
+// ---- encoder emission ----
+
+/// Emit _to_json() functions for every object type in the schema
+pub fn emit_encoders(schema: Schema) -> String {
+  let types = collect_object_types(schema)
+
+  types
+  |> list.map(emit_single_encoder)
+  |> string.join("\n\n")
+}
+
+/// One encoder function: `pub fn user_to_json(user: User) -> json.Json { ... }`
+fn emit_single_encoder(obj: #(String, List(Field))) -> String {
+  let #(name, fields) = obj
+  let fn_name = snake_case_name(name)
+  let param = fn_name
+
+  let field_lines =
+    fields
+    |> list.map(fn(f) { emit_field_encoder_line(f, param) })
+    |> string.join(",\n")
+
+  "pub fn "
+  <> fn_name
+  <> "_to_json("
+  <> param
+  <> ": "
+  <> name
+  <> ") -> json.Json {\n  json.object([\n"
+  <> field_lines
+  <> ",\n  ])\n}"
+}
+
+/// One field line inside json.object([...])
+fn emit_field_encoder_line(field: Field, param: String) -> String {
+  let accessor = param <> "." <> field.gleam_name
+  let encoder = encoder_for_field(field, accessor)
+  "    #(\"" <> field.json_key <> "\", " <> encoder <> ")"
+}
+
+/// Figure out the right json.xxx call for a field
+fn encoder_for_field(field: Field, accessor: String) -> String {
+  case field.optional, field.schema {
+    // optional + nullable — collapse to single json.nullable
+    True, SNullable(inner) ->
+      "json.nullable(" <> accessor <> ", " <> encoder_fn(inner) <> ")"
+    // just optional
+    True, other ->
+      "json.nullable(" <> accessor <> ", " <> encoder_fn(other) <> ")"
+    // nullable but always present
+    False, SNullable(inner) ->
+      "json.nullable(" <> accessor <> ", " <> encoder_fn(inner) <> ")"
+    // normal field
+    False, other -> encoder_expr(other, accessor)
+  }
+}
+
+/// Direct encoder expression for a value: `json.string(value.name)`
+fn encoder_expr(schema: Schema, accessor: String) -> String {
+  case schema {
+    SString -> "json.string(" <> accessor <> ")"
+    SInt -> "json.int(" <> accessor <> ")"
+    SFloat -> "json.float(" <> accessor <> ")"
+    SBool -> "json.bool(" <> accessor <> ")"
+    SDynamic -> "json.null()"
+    SList(inner) ->
+      "json.array(" <> accessor <> ", " <> encoder_fn(inner) <> ")"
+    SObject(name, _) -> snake_case_name(name) <> "_to_json(" <> accessor <> ")"
+    // shouldn't hit this normally since nullable is handled above
+    SNullable(inner) ->
+      "json.nullable(" <> accessor <> ", " <> encoder_fn(inner) <> ")"
+  }
+}
+
+/// The function reference to pass to json.array / json.nullable
+/// e.g. `json.string` or `item_to_json`
+fn encoder_fn(schema: Schema) -> String {
+  case schema {
+    SString -> "json.string"
+    SInt -> "json.int"
+    SFloat -> "json.float"
+    SBool -> "json.bool"
+    SDynamic -> "fn(_) { json.null() }"
+    SObject(name, _) -> snake_case_name(name) <> "_to_json"
+    SList(_) ->
+      "fn(items) { json.array(items, "
+      <> encoder_fn_for_list_inner(schema)
+      <> ") }"
+    SNullable(inner) ->
+      "fn(v) { json.nullable(v, " <> encoder_fn(inner) <> ") }"
+  }
+}
+
+/// helper for nested lists
+fn encoder_fn_for_list_inner(schema: Schema) -> String {
+  case schema {
+    SList(inner) -> encoder_fn(inner)
+    _ -> encoder_fn(schema)
+  }
+}
+
+// ---- unified module output ----
+
+/// Options for controlling what gets emitted
+pub type EmitOptions {
+  EmitOptions(decoders: Bool, encoders: Bool)
+}
+
+/// default: emit everything
+pub fn default_options() -> EmitOptions {
+  EmitOptions(decoders: True, encoders: True)
+}
+
+/// Put it all together: imports + types + decoders + encoders
+/// This is the main entry point for generating a complete module string.
+pub fn emit_module(schema: Schema, options: EmitOptions) -> String {
+  let needs_option = uses_option(schema)
+  let needs_dynamic = uses_dynamic(schema)
+  let has_objects = collect_object_types(schema) != []
+
+  // figure out which imports we need
+  let imports =
+    build_module_imports(
+      needs_option,
+      needs_dynamic,
+      options.decoders && has_objects,
+      options.encoders && has_objects,
+    )
+
+  // build each section
+  let types = emit_types_raw(schema)
+  let decoders = case options.decoders && has_objects {
+    True -> emit_decoders(schema)
+    False -> ""
+  }
+  let encoders = case options.encoders && has_objects {
+    True -> emit_encoders(schema)
+    False -> ""
+  }
+
+  // join non-empty sections with double newlines
+  [imports, types, decoders, encoders]
+  |> list.filter(fn(s) { s != "" })
+  |> string.join("\n\n")
+  |> string.append("\n")
+}
+
+/// Emit just type defs without their own imports (for use in emit_module)
+fn emit_types_raw(schema: Schema) -> String {
+  let types = collect_object_types(schema)
+  types
+  |> list.map(emit_single_type)
+  |> string.join("\n\n")
+}
+
+/// Build all the imports needed for a complete module
+fn build_module_imports(
+  needs_option: Bool,
+  needs_dynamic: Bool,
+  needs_decode: Bool,
+  needs_json: Bool,
+) -> String {
+  let imports = []
+  let imports = case needs_json {
+    True -> ["import gleam/json", ..imports]
+    False -> imports
+  }
+  let imports = case needs_option {
+    True -> ["import gleam/option.{type Option}", ..imports]
+    False -> imports
+  }
+  let imports = case needs_dynamic {
+    True -> ["import gleam/dynamic.{type Dynamic}", ..imports]
+    False -> imports
+  }
+  let imports = case needs_decode {
+    True -> ["import gleam/dynamic/decode", ..imports]
+    False -> imports
+  }
+  imports
+  |> list.sort(string.compare)
+  |> string.join("\n")
+}

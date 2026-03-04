@@ -381,3 +381,226 @@ pub fn dynamic_decoder_test() {
 }",
   )
 }
+
+// ---- encoder tests ----
+
+pub fn flat_encoder_test() {
+  let schema =
+    SObject("User", [
+      Field("age", "age", SInt, False),
+      Field("name", "name", SString, False),
+    ])
+
+  emit.emit_encoders(schema)
+  |> should.equal(
+    "pub fn user_to_json(user: User) -> json.Json {
+  json.object([
+    #(\"age\", json.int(user.age)),
+    #(\"name\", json.string(user.name)),
+  ])
+}",
+  )
+}
+
+pub fn nested_encoder_test() {
+  let schema =
+    SObject("User", [
+      Field(
+        "address",
+        "address",
+        SObject("Address", [
+          Field("city", "city", SString, False),
+        ]),
+        False,
+      ),
+      Field("name", "name", SString, False),
+    ])
+
+  emit.emit_encoders(schema)
+  |> should.equal(
+    "pub fn user_to_json(user: User) -> json.Json {
+  json.object([
+    #(\"address\", address_to_json(user.address)),
+    #(\"name\", json.string(user.name)),
+  ])
+}
+
+pub fn address_to_json(address: Address) -> json.Json {
+  json.object([
+    #(\"city\", json.string(address.city)),
+  ])
+}",
+  )
+}
+
+pub fn nullable_encoder_test() {
+  let schema =
+    SObject("User", [
+      Field("email", "email", SNullable(SString), False),
+      Field("name", "name", SString, False),
+    ])
+
+  emit.emit_encoders(schema)
+  |> should.equal(
+    "pub fn user_to_json(user: User) -> json.Json {
+  json.object([
+    #(\"email\", json.nullable(user.email, json.string)),
+    #(\"name\", json.string(user.name)),
+  ])
+}",
+  )
+}
+
+pub fn list_encoder_test() {
+  let schema =
+    SObject("Response", [
+      Field("tags", "tags", SList(SString), False),
+    ])
+
+  emit.emit_encoders(schema)
+  |> should.equal(
+    "pub fn response_to_json(response: Response) -> json.Json {
+  json.object([
+    #(\"tags\", json.array(response.tags, json.string)),
+  ])
+}",
+  )
+}
+
+pub fn camel_case_key_preserved_in_encoder_test() {
+  let schema =
+    SObject("Person", [
+      Field("firstName", "first_name", SString, False),
+    ])
+
+  emit.emit_encoders(schema)
+  |> should.equal(
+    "pub fn person_to_json(person: Person) -> json.Json {
+  json.object([
+    #(\"firstName\", json.string(person.first_name)),
+  ])
+}",
+  )
+}
+
+// ---- unified module output tests ----
+
+pub fn full_module_test() {
+  let schema =
+    SObject("User", [
+      Field("age", "age", SInt, False),
+      Field("name", "name", SString, False),
+    ])
+
+  emit.emit_module(schema, emit.default_options())
+  |> should.equal(
+    "import gleam/dynamic/decode
+import gleam/json
+
+pub type User {
+  User(
+    age: Int,
+    name: String,
+  )
+}
+
+pub fn user_decoder() -> decode.Decoder(User) {
+  use age <- decode.field(\"age\", decode.int)
+  use name <- decode.field(\"name\", decode.string)
+  decode.success(User(age:, name:))
+}
+
+pub fn user_to_json(user: User) -> json.Json {
+  json.object([
+    #(\"age\", json.int(user.age)),
+    #(\"name\", json.string(user.name)),
+  ])
+}
+",
+  )
+}
+
+pub fn module_no_encoders_test() {
+  let schema =
+    SObject("User", [
+      Field("name", "name", SString, False),
+    ])
+
+  emit.emit_module(schema, emit.EmitOptions(decoders: True, encoders: False))
+  |> should.equal(
+    "import gleam/dynamic/decode
+
+pub type User {
+  User(
+    name: String,
+  )
+}
+
+pub fn user_decoder() -> decode.Decoder(User) {
+  use name <- decode.field(\"name\", decode.string)
+  decode.success(User(name:))
+}
+",
+  )
+}
+
+pub fn module_no_decoders_test() {
+  let schema =
+    SObject("User", [
+      Field("name", "name", SString, False),
+    ])
+
+  emit.emit_module(schema, emit.EmitOptions(decoders: False, encoders: True))
+  |> should.equal(
+    "import gleam/json
+
+pub type User {
+  User(
+    name: String,
+  )
+}
+
+pub fn user_to_json(user: User) -> json.Json {
+  json.object([
+    #(\"name\", json.string(user.name)),
+  ])
+}
+",
+  )
+}
+
+pub fn module_with_option_import_test() {
+  let schema =
+    SObject("User", [
+      Field("email", "email", SNullable(SString), False),
+      Field("name", "name", SString, False),
+    ])
+
+  emit.emit_module(schema, emit.default_options())
+  |> should.equal(
+    "import gleam/dynamic/decode
+import gleam/json
+import gleam/option.{type Option}
+
+pub type User {
+  User(
+    email: Option(String),
+    name: String,
+  )
+}
+
+pub fn user_decoder() -> decode.Decoder(User) {
+  use email <- decode.field(\"email\", decode.optional(decode.string))
+  use name <- decode.field(\"name\", decode.string)
+  decode.success(User(email:, name:))
+}
+
+pub fn user_to_json(user: User) -> json.Json {
+  json.object([
+    #(\"email\", json.nullable(user.email, json.string)),
+    #(\"name\", json.string(user.name)),
+  ])
+}
+",
+  )
+}
