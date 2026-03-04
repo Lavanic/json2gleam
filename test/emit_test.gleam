@@ -604,3 +604,15 @@ pub fn user_to_json(user: User) -> json.Json {
 ",
   )
 }
+
+pub fn empty_object_encoder_test() {
+  let schema =
+    SObject("Empty", [])
+
+  emit.emit_encoders(schema)
+  |> should.equal(
+    "pub fn empty_to_json(empty: Empty) -> json.Json {
+  json.object([])
+}",
+  )
+}

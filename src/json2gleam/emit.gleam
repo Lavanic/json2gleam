@@ -323,15 +323,19 @@ fn emit_single_encoder(obj: #(String, List(Field))) -> String {
     |> list.map(fn(f) { emit_field_encoder_line(f, param) })
     |> string.join(",\n")
 
+  let body = case field_lines {
+    "" -> "  json.object([])\n}"
+    _ -> "  json.object([\n" <> field_lines <> ",\n  ])\n}"
+  }
+
   "pub fn "
   <> fn_name
   <> "_to_json("
   <> param
   <> ": "
   <> name
-  <> ") -> json.Json {\n  json.object([\n"
-  <> field_lines
-  <> ",\n  ])\n}"
+  <> ") -> json.Json {\n"
+  <> body
 }
 
 /// One field line inside json.object([...])
