@@ -63,12 +63,14 @@ fn run() -> glint.Command(Nil) {
 
   // grab flag vals
   let root_name = case root_name_flag(flags) {
-    Ok(name) -> name
-    Error(_) -> {
-      io.println_error("error: --root-name is required")
+    Ok("") | Error(_) -> {
+      io.println_error(
+        "error: --root-name is required\nUsage: json2gleam --root-name=MyType [--file input.json]",
+      )
       halt(1)
       ""
     }
+    Ok(name) -> name
   }
 
   let files = result.unwrap(file_flag(flags), [])

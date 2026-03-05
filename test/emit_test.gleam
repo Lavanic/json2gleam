@@ -1,4 +1,5 @@
 //Tests XD
+import gleam/string
 import gleeunit
 import gleeunit/should
 import json2gleam/emit
@@ -80,7 +81,7 @@ pub fn nullable_field_test() {
 
 pub type User {
   User(
-    email: Option(String),
+    email: Option(String),  // email address
     name: String,
   )
 }",
@@ -584,7 +585,7 @@ import gleam/option.{type Option}
 
 pub type User {
   User(
-    email: Option(String),
+    email: Option(String),  // email address
     name: String,
   )
 }
@@ -606,13 +607,223 @@ pub fn user_to_json(user: User) -> json.Json {
 }
 
 pub fn empty_object_encoder_test() {
-  let schema =
-    SObject("Empty", [])
+  let schema = SObject("Empty", [])
 
   emit.emit_encoders(schema)
   |> should.equal(
-    "pub fn empty_to_json(empty: Empty) -> json.Json {
+    "pub fn empty_to_json(_empty: Empty) -> json.Json {
   json.object([])
 }",
   )
+}
+
+// ---- type hint comment tests ----
+
+pub fn datetime_hint_test() {
+  let schema =
+    SObject("Event", [
+      Field("created_at", "created_at", SString, False),
+      Field("name", "name", SString, False),
+    ])
+
+  emit.emit_types(schema)
+  |> should.equal(
+    "pub type Event {
+  Event(
+    created_at: String,  // ISO 8601 datetime
+    name: String,
+  )
+}",
+  )
+}
+
+pub fn url_hint_test() {
+  let schema =
+    SObject("Link", [
+      Field("avatar_url", "avatar_url", SString, False),
+      Field("homepage", "homepage", SString, False),
+    ])
+
+  emit.emit_types(schema)
+  |> should.equal(
+    "pub type Link {
+  Link(
+    avatar_url: String,  // URL
+    homepage: String,  // URL
+  )
+}",
+  )
+}
+
+pub fn id_hint_test() {
+  let schema =
+    SObject("Item", [
+      Field("id", "id", SString, False),
+      Field("user_id", "user_id", SString, False),
+    ])
+
+  emit.emit_types(schema)
+  |> should.equal(
+    "pub type Item {
+  Item(
+    id: String,  // identifier
+    user_id: String,  // identifier
+  )
+}",
+  )
+}
+
+pub fn no_hint_on_non_string_test() {
+  let schema =
+    SObject("Settings", [
+      Field("email", "email", schema.SBool, False),
+    ])
+
+  emit.emit_types(schema)
+  |> should.equal(
+    "pub type Settings {
+  Settings(
+    email: Bool,
+  )
+}",
+  )
+}
+
+// ---- top-level non-object module tests ----
+
+pub fn toplevel_list_module_test() {
+  let schema = SList(SInt)
+
+  emit.emit_module(schema, emit.default_options())
+  |> should.equal(
+    "import gleam/dynamic/decode
+
+/// The top-level JSON value is: List(Int)
+
+/// Decoder for the top-level value
+pub fn decoder() -> decode.Decoder(List(Int)) {
+  decode.list(decode.int)
+}
+",
+  )
+}
+
+pub fn toplevel_list_of_objects_module_test() {
+  let schema =
+    SList(
+      SObject("User", [
+        Field("name", "name", SString, False),
+      ]),
+    )
+
+  emit.emit_module(schema, emit.default_options())
+  |> should.equal(
+    "import gleam/dynamic/decode
+import gleam/json
+
+/// The top-level JSON value is: List(User)
+
+pub type User {
+  User(
+    name: String,
+  )
+}
+
+/// Decoder for the top-level value
+pub fn decoder() -> decode.Decoder(List(User)) {
+  decode.list(user_decoder())
+}
+
+pub fn user_decoder() -> decode.Decoder(User) {
+  use name <- decode.field(\"name\", decode.string)
+  decode.success(User(name:))
+}
+
+pub fn user_to_json(user: User) -> json.Json {
+  json.object([
+    #(\"name\", json.string(user.name)),
+  ])
+}
+",
+  )
+}
+
+pub fn toplevel_string_module_test() {
+  let schema = SString
+
+  emit.emit_module(schema, emit.default_options())
+  |> should.equal(
+    "import gleam/dynamic/decode
+
+/// The top-level JSON value is: String
+
+/// Decoder for the top-level value
+pub fn decoder() -> decode.Decoder(String) {
+  decode.string
+}
+",
+  )
+}
+
+// ---- type name deduplication tests ----
+
+pub fn duplicate_type_names_get_suffixed_test() {
+  // Two nested objects both named "Data" but with different fields
+  let schema =
+    SObject("Root", [
+      Field(
+        "data",
+        "data",
+        SObject("Data", [
+          Field("id", "id", SInt, False),
+          Field("name", "name", SString, False),
+        ]),
+        False,
+      ),
+      Field(
+        "meta",
+        "meta",
+        SObject("Meta", [
+          Field(
+            "data",
+            "data",
+            SObject("Data", [Field("id", "id", SInt, False)]),
+            False,
+          ),
+        ]),
+        False,
+      ),
+    ])
+
+  let output = emit.emit_module(schema, emit.default_options())
+  // The first Data keeps its name, the second becomes Data2
+  should.be_true(string.contains(output, "pub type Data {"))
+  should.be_true(string.contains(output, "pub type Data2 {"))
+  should.be_true(string.contains(output, "data: Data2,"))
+  // No duplicate type definitions
+  should.equal(count_occurrences(output, "pub type Data {"), 1)
+}
+
+pub fn same_structure_types_share_name_test() {
+  // Two nested objects both named "Data" with identical fields — should NOT be renamed
+  let schema =
+    SObject("Root", [
+      Field("a", "a", SObject("Data", [Field("id", "id", SInt, False)]), False),
+      Field("b", "b", SObject("Data", [Field("id", "id", SInt, False)]), False),
+    ])
+
+  let output = emit.emit_module(schema, emit.default_options())
+  should.equal(count_occurrences(output, "pub type Data {"), 1)
+  should.be_false(string.contains(output, "Data2"))
+}
+
+fn count_occurrences(haystack: String, needle: String) -> Int {
+  do_count(haystack, needle, 0)
+}
+
+fn do_count(haystack: String, needle: String, acc: Int) -> Int {
+  case string.split_once(haystack, needle) {
+    Ok(#(_, rest)) -> do_count(rest, needle, acc + 1)
+    Error(_) -> acc
+  }
 }

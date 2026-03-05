@@ -198,11 +198,11 @@ pub fn numeric_start_key_test() {
 
   let assert Ok(schema) = infer.infer_schema(json, "Settings")
 
-  // should prepend underscore since it starts with a digit
+  // should prepend field_ since it starts with a digit
   schema
   |> should.equal(
     SObject("Settings", [
-      Field("3d_mode", "_3d_mode", SBool, False),
+      Field("3d_mode", "field_3d_mode", SBool, False),
     ]),
   )
 }
@@ -223,4 +223,133 @@ pub fn top_level_number_test() {
   let assert Ok(schema) = infer.infer_schema(json, "Root")
 
   schema |> should.equal(SInt)
+}
+
+// --- array merging: objects with different fields ---
+
+pub fn array_merge_optional_fields_test() {
+  let json = "[{\"id\": 1, \"name\": \"a\"}, {\"id\": 2, \"extra\": true}]"
+
+  let assert Ok(schema) = infer.infer_schema(json, "Items")
+
+  schema
+  |> should.equal(
+    SList(
+      SObject("Item", [
+        Field("extra", "extra", SBool, True),
+        Field("id", "id", SInt, False),
+        Field("name", "name", SString, True),
+      ]),
+    ),
+  )
+}
+
+pub fn array_merge_null_refinement_test() {
+  // first element has null email, second has a string
+  let json = "[{\"email\": null}, {\"email\": \"a@b.com\"}]"
+
+  let assert Ok(schema) = infer.infer_schema(json, "Users")
+
+  schema
+  |> should.equal(
+    SList(
+      SObject("User", [
+        Field("email", "email", SNullable(SString), False),
+      ]),
+    ),
+  )
+}
+
+pub fn array_merge_nested_objects_test() {
+  // two objects with same nested structure but different nested fields
+  let json =
+    "[{\"addr\": {\"city\": \"A\"}}, {\"addr\": {\"city\": \"B\", \"zip\": \"12345\"}}]"
+
+  let assert Ok(schema) = infer.infer_schema(json, "People")
+
+  schema
+  |> should.equal(
+    SList(
+      SObject("People", [
+        Field(
+          "addr",
+          "addr",
+          SObject("Addr", [
+            Field("city", "city", SString, False),
+            Field("zip", "zip", SString, True),
+          ]),
+          False,
+        ),
+      ]),
+    ),
+  )
+}
+
+// --- field name deduplication ---
+
+pub fn duplicate_field_names_test() {
+  let json = "{\"$ref\": \"a\", \"ref\": \"b\"}"
+
+  let assert Ok(schema) = infer.infer_schema(json, "Thing")
+
+  schema
+  |> should.equal(
+    SObject("Thing", [
+      Field("$ref", "ref", SString, False),
+      Field("ref", "ref_2", SString, False),
+    ]),
+  )
+}
+
+// --- merge_schemas unit tests ---
+
+pub fn merge_int_float_test() {
+  infer.merge_schemas(SInt, SFloat)
+  |> should.equal(SFloat)
+}
+
+pub fn merge_null_refine_test() {
+  infer.merge_schemas(SNullable(SDynamic), SString)
+  |> should.equal(SNullable(SString))
+}
+
+pub fn merge_incompatible_test() {
+  infer.merge_schemas(SString, SInt)
+  |> should.equal(SDynamic)
+}
+
+pub fn merge_nullable_non_nullable_test() {
+  infer.merge_schemas(SNullable(SString), SString)
+  |> should.equal(SNullable(SString))
+}
+
+pub fn merge_lists_test() {
+  infer.merge_schemas(SList(SInt), SList(SFloat))
+  |> should.equal(SList(SFloat))
+}
+
+// --- top-level edge cases ---
+
+pub fn top_level_null_test() {
+  let json = "null"
+
+  let assert Ok(schema) = infer.infer_schema(json, "Root")
+
+  schema |> should.equal(SNullable(SDynamic))
+}
+
+pub fn top_level_bool_test() {
+  let json = "true"
+
+  let assert Ok(schema) = infer.infer_schema(json, "Root")
+
+  schema |> should.equal(SBool)
+}
+
+pub fn top_level_float_test() {
+  let json = "3.14"
+
+  let assert Ok(schema) = infer.infer_schema(json, "Root")
+
+  schema |> should.equal(SFloat)
 }
