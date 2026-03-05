@@ -69,17 +69,14 @@ fn type_string(field: Field) -> String {
 }
 
 /// Detect common patterns in field names and return a hint comment.
-/// Only applies to String fields — no point hinting on Int/Bool/etc.
 fn field_type_hint(field: Field) -> String {
-  let key = string.lowercase(field.json_key)
-  let is_string = case field.schema {
-    SString -> True
-    SNullable(SString) -> True
-    _ -> False
-  }
-  case is_string {
-    False -> ""
-    True -> detect_hint(key)
+  // Float fields get a hint about JSON int/float ambiguity
+  case field.schema {
+    SFloat | SNullable(SFloat) ->
+      "  // JSON number — could be Int depending on your data"
+    SString | SNullable(SString) ->
+      detect_hint(string.lowercase(field.json_key))
+    _ -> ""
   }
 }
 
@@ -460,6 +457,8 @@ fn emit_single_encoder(obj: #(String, List(Field))) -> String {
     |> list.map(fn(f) { emit_field_encoder_line(f, param) })
     |> string.join(",\n")
 
+  // Empty objects have no fields to access, so prefix the param with _
+  // to mark it as unused and satisfy the Gleam compiler
   let #(body, param_prefix) = case field_lines {
     "" -> #("  json.object([])\n}", "_")
     _ -> #("  json.object([\n" <> field_lines <> ",\n  ])\n}", "")

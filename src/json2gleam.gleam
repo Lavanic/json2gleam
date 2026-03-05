@@ -14,6 +14,8 @@ import json2gleam/infer
 import simplifile
 import stdin
 
+const version = "0.1.0"
+
 pub fn main() {
   glint.new()
   |> glint.with_name("json2gleam")
@@ -25,9 +27,9 @@ pub fn main() {
 fn run() -> glint.Command(Nil) {
   // -- flags --
   use file_flag <- glint.flag(
-    glint.strings_flag("file")
-    |> glint.flag_default([])
-    |> glint.flag_help("Path to JSON file(s). Omit to read from stdin."),
+    glint.string_flag("file")
+    |> glint.flag_default("")
+    |> glint.flag_help("Path to a JSON file. Omit to read from stdin."),
   )
   use root_name_flag <- glint.flag(
     glint.string_flag("root-name")
@@ -55,17 +57,31 @@ fn run() -> glint.Command(Nil) {
     |> glint.flag_default(False)
     |> glint.flag_help("Skip decoder generation"),
   )
+  use version_flag <- glint.flag(
+    glint.bool_flag("version")
+    |> glint.flag_default(False)
+    |> glint.flag_help("Print version and exit"),
+  )
 
   use <- glint.command_help(
     "Generate Gleam types, decoders, and encoders from JSON.",
   )
   use _named, _args, flags <- glint.command()
 
+  // --version: print and exit
+  case result.unwrap(version_flag(flags), False) {
+    True -> {
+      io.println("json2gleam " <> version)
+      halt(0)
+    }
+    False -> Nil
+  }
+
   // grab flag vals
   let root_name = case root_name_flag(flags) {
     Ok("") | Error(_) -> {
       io.println_error(
-        "error: --root-name is required\nUsage: json2gleam --root-name=MyType [--file input.json]",
+        "error: --root-name is required (use PascalCase, e.g. MyType)\nUsage: json2gleam --root-name=MyType [--file=input.json]",
       )
       halt(1)
       ""
@@ -73,16 +89,16 @@ fn run() -> glint.Command(Nil) {
     Ok(name) -> name
   }
 
-  let files = result.unwrap(file_flag(flags), [])
+  let file = result.unwrap(file_flag(flags), "")
   let out = result.unwrap(out_flag(flags), "")
   let module = result.unwrap(module_flag(flags), "")
   let no_encoders = result.unwrap(no_encoders_flag(flags), False)
   let no_decoders = result.unwrap(no_decoders_flag(flags), False)
 
   // read JSON input
-  let json_string = case files {
-    [] -> read_stdin()
-    paths -> read_files(paths)
+  let json_string = case file {
+    "" -> read_stdin()
+    path -> read_file(path)
   }
 
   case json_string {
@@ -157,20 +173,14 @@ fn read_stdin() -> String {
   |> string.join("")
 }
 
-/// Read and concatenate multiple files (for multi-sample, we just
-/// use the first file for now I'll add merge later
-fn read_files(paths: List(String)) -> String {
-  case paths {
-    [] -> ""
-    [first, ..] -> {
-      case simplifile.read(first) {
-        Ok(content) -> content
-        Error(_) -> {
-          io.println_error("error: could not read file " <> first)
-          halt(1)
-          ""
-        }
-      }
+/// Read a single JSON file
+fn read_file(path: String) -> String {
+  case simplifile.read(path) {
+    Ok(content) -> content
+    Error(_) -> {
+      io.println_error("error: could not read file " <> path)
+      halt(1)
+      ""
     }
   }
 }

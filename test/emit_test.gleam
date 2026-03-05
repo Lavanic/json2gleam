@@ -222,7 +222,7 @@ pub fn all_primitives_test() {
     active: Bool,
     count: Int,
     name: String,
-    score: Float,
+    score: Float,  // JSON number — could be Int depending on your data
   )
 }",
   )
@@ -815,6 +815,46 @@ pub fn same_structure_types_share_name_test() {
   let output = emit.emit_module(schema, emit.default_options())
   should.equal(count_occurrences(output, "pub type Data {"), 1)
   should.be_false(string.contains(output, "Data2"))
+}
+
+pub fn empty_object_type_test() {
+  let schema = SObject("Empty", [])
+
+  emit.emit_types(schema)
+  |> should.equal("pub type Empty {\n  Empty\n}")
+}
+
+pub fn empty_object_module_test() {
+  let schema = SObject("Empty", [])
+
+  let output = emit.emit_module(schema, emit.default_options())
+  should.be_true(string.contains(output, "pub type Empty {\n  Empty\n}"))
+}
+
+pub fn float_hint_in_module_test() {
+  let schema =
+    SObject("Stats", [
+      Field("score", "score", SFloat, False),
+    ])
+
+  let output = emit.emit_module(schema, emit.default_options())
+  should.be_true(string.contains(
+    output,
+    "score: Float,  // JSON number — could be Int depending on your data",
+  ))
+}
+
+pub fn reserved_word_encoder_param_test() {
+  // An object named "Type" would get snake_cased to "type" which is reserved
+  let schema =
+    SObject("Type", [
+      Field("name", "name", SString, False),
+    ])
+
+  let output = emit.emit_encoders(schema)
+  // The param should be "type_val" not "type"
+  should.be_true(string.contains(output, "type_val: Type"))
+  should.be_true(string.contains(output, "type_val.name"))
 }
 
 fn count_occurrences(haystack: String, needle: String) -> Int {

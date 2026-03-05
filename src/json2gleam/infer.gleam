@@ -280,13 +280,71 @@ pub fn to_pascal_case(s: String) -> String {
   justin.pascal_case(s)
 }
 
-/// Very naive singularization — just strip trailing 's' for type names
-/// e.g. "Tags" → "Tag", "Items" → "Item"
-/// Not perfect but good enough for most API responses
+/// Singularize a name for use as an array element type name.
+/// Handles common English plural patterns to avoid garbage like
+/// "Statu" from "status" or "Addresse" from "addresses".
 fn singularize(name: String) -> String {
-  case string.ends_with(name, "s") && string.length(name) > 1 {
-    True -> string.drop_end(name, 1)
-    False -> name
+  let len = string.length(name)
+  case len <= 1 {
+    True -> name
+    False -> {
+      let lower = string.lowercase(name)
+      // Don't strip from words ending in ss, us, is, os (class, status, analysis, cosmos)
+      // Also protect invariant plurals (series, species, etc.)
+      case
+        string.ends_with(lower, "ss")
+        || string.ends_with(lower, "us")
+        || string.ends_with(lower, "is")
+        || string.ends_with(lower, "os")
+        || is_invariant_plural(lower)
+      {
+        True -> name
+        False -> singularize_suffix(name, lower, len)
+      }
+    }
+  }
+}
+
+/// Words that are the same in singular and plural form
+fn is_invariant_plural(lower: String) -> Bool {
+  case lower {
+    "series"
+    | "species"
+    | "deer"
+    | "sheep"
+    | "fish"
+    | "moose"
+    | "aircraft"
+    | "data" -> True
+    _ -> False
+  }
+}
+
+fn singularize_suffix(name: String, lower: String, len: Int) -> String {
+  case
+    string.ends_with(lower, "ches")
+    || string.ends_with(lower, "shes")
+    || string.ends_with(lower, "ses")
+    || string.ends_with(lower, "xes")
+    || string.ends_with(lower, "zes")
+  {
+    // matches, bushes, boxes, classes → match, bush, box, class
+    True -> string.drop_end(name, 2)
+    False ->
+      case string.ends_with(lower, "ies") && len > 3 {
+        // categories → category (but not "series" — caught by "is" check above)
+        True -> string.drop_end(name, 3) <> "y"
+        False ->
+          case string.ends_with(lower, "ves") && len > 3 {
+            // wolves → wolf
+            True -> string.drop_end(name, 3) <> "f"
+            False ->
+              case string.ends_with(lower, "s") {
+                True -> string.drop_end(name, 1)
+                False -> name
+              }
+          }
+      }
   }
 }
 

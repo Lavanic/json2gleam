@@ -353,3 +353,124 @@ pub fn top_level_float_test() {
 
   schema |> should.equal(SFloat)
 }
+
+// --- singularize tests (exercised via array element type names) ---
+
+pub fn singularize_items_test() {
+  // "items" → singular "Item"
+  let json = "[{\"id\": 1}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "items")
+  name |> should.equal("Item")
+}
+
+pub fn singularize_statuses_test() {
+  // "statuses" ends in "ses" → strip "es" → "status" → "Status"
+  let json = "[{\"code\": 200}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "statuses")
+  name |> should.equal("Status")
+}
+
+pub fn singularize_categories_test() {
+  // "categories" ends in "ies" → "Category"
+  let json = "[{\"name\": \"a\"}]"
+  let assert Ok(SList(SObject(name, _))) =
+    infer.infer_schema(json, "categories")
+  name |> should.equal("Category")
+}
+
+pub fn singularize_addresses_test() {
+  // "addresses" ends in "ses" → strip "es" → "address" → "Address"
+  let json = "[{\"city\": \"NYC\"}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "addresses")
+  name |> should.equal("Address")
+}
+
+pub fn singularize_series_test() {
+  // "series" is an invariant plural → stays "Series"
+  let json = "[{\"title\": \"a\"}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "series")
+  name |> should.equal("Series")
+}
+
+pub fn singularize_data_test() {
+  // "data" doesn't end in "s" → stays "Data"
+  let json = "[{\"value\": 1}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "data")
+  name |> should.equal("Data")
+}
+
+pub fn singularize_wolves_test() {
+  // "wolves" ends in "ves" → "Wolf"
+  let json = "[{\"name\": \"grey\"}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "wolves")
+  name |> should.equal("Wolf")
+}
+
+pub fn singularize_status_preserved_test() {
+  // "status" ends in "us" → preserved as-is
+  let json = "[{\"code\": 200}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "status")
+  name |> should.equal("Status")
+}
+
+// --- edge case tests ---
+
+pub fn empty_object_test() {
+  let json = "{}"
+  let assert Ok(schema) = infer.infer_schema(json, "Empty")
+  schema |> should.equal(SObject("Empty", []))
+}
+
+pub fn deeply_nested_test() {
+  let json = "{\"a\": {\"b\": {\"c\": {\"d\": \"deep\"}}}}"
+  let assert Ok(schema) = infer.infer_schema(json, "Root")
+  schema
+  |> should.equal(
+    SObject("Root", [
+      Field(
+        "a",
+        "a",
+        SObject("A", [
+          Field(
+            "b",
+            "b",
+            SObject("B", [
+              Field(
+                "c",
+                "c",
+                SObject("C", [Field("d", "d", SString, False)]),
+                False,
+              ),
+            ]),
+            False,
+          ),
+        ]),
+        False,
+      ),
+    ]),
+  )
+}
+
+pub fn mixed_array_types_test() {
+  // array with int and float → Float
+  let json = "[1, 2.5]"
+  let assert Ok(schema) = infer.infer_schema(json, "Numbers")
+  schema |> should.equal(SList(SFloat))
+}
+
+pub fn array_with_null_and_value_test() {
+  // array with null and string → List(Option(String))
+  let json = "[null, \"hello\"]"
+  let assert Ok(schema) = infer.infer_schema(json, "Items")
+  schema |> should.equal(SList(SNullable(SString)))
+}
+
+pub fn special_chars_in_key_test() {
+  let json = "{\"foo-bar\": 1, \"baz.qux\": 2}"
+  let assert Ok(SObject(_, fields)) = infer.infer_schema(json, "Thing")
+  // keys with special chars get cleaned
+  let assert [
+    Field("baz.qux", "baz_qux", SInt, False),
+    Field("foo-bar", "foo_bar", SInt, False),
+  ] = fields
+}
