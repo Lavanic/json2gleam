@@ -57,6 +57,13 @@ fn run() -> glint.Command(Nil) {
     |> glint.flag_default(False)
     |> glint.flag_help("Skip decoder generation"),
   )
+  use no_singularize_flag <- glint.flag(
+    glint.bool_flag("no-singularize")
+    |> glint.flag_default(False)
+    |> glint.flag_help(
+      "Don't singularize array element type names (e.g. keep Users instead of User)",
+    ),
+  )
   use version_flag <- glint.flag(
     glint.bool_flag("version")
     |> glint.flag_default(False)
@@ -94,6 +101,7 @@ fn run() -> glint.Command(Nil) {
   let module = result.unwrap(module_flag(flags), "")
   let no_encoders = result.unwrap(no_encoders_flag(flags), False)
   let no_decoders = result.unwrap(no_decoders_flag(flags), False)
+  let no_singularize = result.unwrap(no_singularize_flag(flags), False)
 
   // read JSON input
   let json_string = case file {
@@ -110,7 +118,9 @@ fn run() -> glint.Command(Nil) {
   }
 
   // infer schema
-  let schema = case infer.infer_schema(json_string, root_name) {
+  let infer_options =
+    infer.InferOptions(singularize: !no_singularize)
+  let schema = case infer.infer_schema_with_options(json_string, root_name, infer_options) {
     Ok(s) -> s
     Error(infer.EmptyInput) -> {
       io.println_error("error: empty JSON input")

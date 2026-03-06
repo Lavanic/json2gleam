@@ -22,17 +22,36 @@ pub type InferError {
   EmptyInput
 }
 
+/// Options for controlling inference behaviour
+pub type InferOptions {
+  InferOptions(singularize: Bool)
+}
+
+/// Default: singularize array element type names
+pub fn default_options() -> InferOptions {
+  InferOptions(singularize: True)
+}
+
 /// give it a JSON string, get back a schema.
 /// The root_name is used for the top-level object type name.
 pub fn infer_schema(
   json_string: String,
   root_name: String,
 ) -> Result(Schema, InferError) {
+  infer_schema_with_options(json_string, root_name, default_options())
+}
+
+/// Like infer_schema but with explicit options
+pub fn infer_schema_with_options(
+  json_string: String,
+  root_name: String,
+  options: InferOptions,
+) -> Result(Schema, InferError) {
   case string.trim(json_string) {
     "" -> Error(EmptyInput)
     trimmed -> {
       case json.parse(trimmed, decode.dynamic) {
-        Ok(value) -> Ok(infer_value(value, root_name))
+        Ok(value) -> Ok(infer_value(value, root_name, options))
         Error(_) -> Error(JsonParseError("invalid JSON"))
       }
     }
@@ -41,7 +60,7 @@ pub fn infer_schema(
 
 /// Recursively figure out the schema for a dynamic value.
 /// name_hint is used when we encounter an object (it becomes the type name)
-fn infer_value(value: Dynamic, name_hint: String) -> Schema {
+fn infer_value(value: Dynamic, name_hint: String, opts: InferOptions) -> Schema {
   case dynamic.classify(value) {
     "String" -> SString
     "Int" -> SInt
@@ -51,27 +70,30 @@ fn infer_value(value: Dynamic, name_hint: String) -> Schema {
     // null → we don't know what type it is yet, just that it's nullable
     "Nil" -> SNullable(SDynamic)
 
-    "List" -> infer_list(value, name_hint)
+    "List" -> infer_list(value, name_hint, opts)
 
     // Erlang maps show up as "Dict" that's JSON objects
-    _ -> infer_object_or_fallback(value, name_hint)
+    _ -> infer_object_or_fallback(value, name_hint, opts)
   }
 }
 
 /// Infer schema for a JSON array
-/// Merges all elements so that if objects have different fields 
+/// Merges all elements so that if objects have different fields
 /// missing fields become optional in the merged schema
-fn infer_list(value: Dynamic, name_hint: String) -> Schema {
+fn infer_list(value: Dynamic, name_hint: String, opts: InferOptions) -> Schema {
   case decode.run(value, decode.list(decode.dynamic)) {
     Ok(items) -> {
       case items {
         [] -> SList(SDynamic)
         [first, ..rest] -> {
-          let singular = singularize(name_hint)
-          let base = infer_value(first, singular)
+          let element_name = case opts.singularize {
+            True -> singularize(name_hint)
+            False -> name_hint
+          }
+          let base = infer_value(first, element_name, opts)
           let merged =
             list.fold(rest, base, fn(acc, item) {
-              merge_schemas(acc, infer_value(item, singular))
+              merge_schemas(acc, infer_value(item, element_name, opts))
             })
           SList(merged)
         }
@@ -82,15 +104,23 @@ fn infer_list(value: Dynamic, name_hint: String) -> Schema {
 }
 
 /// Try to decode as an object (dict), fall back to SDynamic
-fn infer_object_or_fallback(value: Dynamic, name_hint: String) -> Schema {
+fn infer_object_or_fallback(
+  value: Dynamic,
+  name_hint: String,
+  opts: InferOptions,
+) -> Schema {
   case decode.run(value, decode.dict(decode.string, decode.dynamic)) {
-    Ok(entries) -> infer_object(entries, name_hint)
+    Ok(entries) -> infer_object(entries, name_hint, opts)
     Error(_) -> SDynamic
   }
 }
 
 /// Build an SObject from a dict of string keys to dynamic values
-fn infer_object(entries: dict.Dict(String, Dynamic), name: String) -> Schema {
+fn infer_object(
+  entries: dict.Dict(String, Dynamic),
+  name: String,
+  opts: InferOptions,
+) -> Schema {
   let fields =
     entries
     |> dict.to_list()
@@ -102,7 +132,7 @@ fn infer_object(entries: dict.Dict(String, Dynamic), name: String) -> Schema {
       Field(
         json_key: key,
         gleam_name: gleam_name,
-        schema: infer_value(value, child_name),
+        schema: infer_value(value, child_name, opts),
         optional: False,
       )
     })
@@ -289,17 +319,24 @@ fn singularize(name: String) -> String {
     True -> name
     False -> {
       let lower = string.lowercase(name)
-      // Don't strip from words ending in ss, us, is, os (class, status, analysis, cosmos)
-      // Also protect invariant plurals (series, species, etc.)
-      case
-        string.ends_with(lower, "ss")
-        || string.ends_with(lower, "us")
-        || string.ends_with(lower, "is")
-        || string.ends_with(lower, "os")
-        || is_invariant_plural(lower)
-      {
+      case is_invariant_plural(lower) {
         True -> name
-        False -> singularize_suffix(name, lower, len)
+        False ->
+          case irregular_singular(lower) {
+            Ok(singular) -> singular
+            Error(_) ->
+              // Don't strip from words ending in ss, us, is, os
+              // (class, status, analysis, cosmos)
+              case
+                string.ends_with(lower, "ss")
+                || string.ends_with(lower, "us")
+                || string.ends_with(lower, "is")
+                || string.ends_with(lower, "os")
+              {
+                True -> name
+                False -> singularize_suffix(name, lower, len)
+              }
+          }
       }
     }
   }
@@ -315,8 +352,37 @@ fn is_invariant_plural(lower: String) -> Bool {
     | "fish"
     | "moose"
     | "aircraft"
-    | "data" -> True
+    | "data"
+    | "metadata"
+    | "media"
+    | "info"
+    | "information"
+    | "equipment"
+    | "analytics"
+    | "settings"
+    | "contents"
+    | "news" -> True
     _ -> False
+  }
+}
+
+/// Common irregular plurals that can't be handled by suffix rules
+fn irregular_singular(lower: String) -> Result(String, Nil) {
+  case lower {
+    "people" -> Ok("person")
+    "children" -> Ok("child")
+    "men" -> Ok("man")
+    "women" -> Ok("woman")
+    "mice" -> Ok("mouse")
+    "geese" -> Ok("goose")
+    "teeth" -> Ok("tooth")
+    "feet" -> Ok("foot")
+    "indices" -> Ok("index")
+    "vertices" -> Ok("vertex")
+    "statuses" -> Ok("status")
+    "aliases" -> Ok("alias")
+    "buses" -> Ok("bus")
+    _ -> Error(Nil)
   }
 }
 
@@ -324,28 +390,40 @@ fn singularize_suffix(name: String, lower: String, len: Int) -> String {
   case
     string.ends_with(lower, "ches")
     || string.ends_with(lower, "shes")
-    || string.ends_with(lower, "ses")
+    || string.ends_with(lower, "sses")
     || string.ends_with(lower, "xes")
     || string.ends_with(lower, "zes")
   {
-    // matches, bushes, boxes, classes → match, bush, box, class
+    // matches, bushes, classes, boxes → match, bush, class, box
     True -> string.drop_end(name, 2)
     False ->
       case string.ends_with(lower, "ies") && len > 3 {
-        // categories → category (but not "series" — caught by "is" check above)
+        // categories → category (but not "series" — caught by invariant check)
         True -> string.drop_end(name, 3) <> "y"
         False ->
-          case string.ends_with(lower, "ves") && len > 3 {
-            // wolves → wolf
+          case ends_with_lves_or_rves(lower) && len > 3 {
+            // wolves → wolf, shelves → shelf (only after l/r to avoid
+            // false positives like "archives" → "archif")
             True -> string.drop_end(name, 3) <> "f"
             False ->
-              case string.ends_with(lower, "s") {
-                True -> string.drop_end(name, 1)
-                False -> name
+              case string.ends_with(lower, "oes") && len > 3 {
+                // tomatoes → tomato, heroes → hero
+                True -> string.drop_end(name, 2)
+                False ->
+                  case string.ends_with(lower, "s") {
+                    True -> string.drop_end(name, 1)
+                    False -> name
+                  }
               }
           }
       }
   }
+}
+
+/// Only match "lves" or "rves" endings to avoid false positives
+/// like "archives" → "archif". Handles wolves, shelves, dwarves, etc.
+fn ends_with_lves_or_rves(lower: String) -> Bool {
+  string.ends_with(lower, "lves") || string.ends_with(lower, "rves")
 }
 
 // schema merging

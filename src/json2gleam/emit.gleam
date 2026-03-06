@@ -346,9 +346,9 @@ fn decoder_for_schema(schema: Schema) -> String {
   }
 }
 
-/// turn "UserProfile" into "user_profile" for function names
+/// turn "UserProfile" into "user_profile" for function names.
+/// Handles acronyms correctly: "APIResponse" → "api_response"
 fn snake_case_name(pascal_name: String) -> String {
-  // walk the string and insert _ before each uppercase letter (except the first)
   pascal_name
   |> string.to_graphemes()
   |> do_snake_case([], True)
@@ -366,8 +366,32 @@ fn do_snake_case(
     [] -> acc
     [c, ..rest] -> {
       case is_uppercase(c), is_first {
+        // First char: never insert underscore
         True, True -> do_snake_case(rest, [c, ..acc], False)
-        True, False -> do_snake_case(rest, [c, "_", ..acc], False)
+        // Uppercase after something: check if we need an underscore
+        True, False -> {
+          case acc, rest {
+            // Previous char was lowercase → boundary: "user" + "P" → "user_P"
+            [prev, ..], _ if prev != "_" -> {
+              case is_uppercase(prev) {
+                False -> do_snake_case(rest, [c, "_", ..acc], False)
+                // Previous was also uppercase: check next char
+                True ->
+                  case rest {
+                    // Next is lowercase → acronym end: "API" + "R(esponse)" → "API_R"
+                    [next, ..] ->
+                      case is_uppercase(next) {
+                        False -> do_snake_case(rest, [c, "_", ..acc], False)
+                        True -> do_snake_case(rest, [c, ..acc], False)
+                      }
+                    // No next char, just append
+                    [] -> do_snake_case(rest, [c, ..acc], False)
+                  }
+              }
+            }
+            _, _ -> do_snake_case(rest, [c, ..acc], False)
+          }
+        }
         _, _ -> do_snake_case(rest, [c, ..acc], False)
       }
     }
@@ -506,7 +530,7 @@ fn encoder_expr(schema: Schema, accessor: String) -> String {
     SInt -> "json.int(" <> accessor <> ")"
     SFloat -> "json.float(" <> accessor <> ")"
     SBool -> "json.bool(" <> accessor <> ")"
-    SDynamic -> "json.null()"
+    SDynamic -> "json.null()  // Dynamic values cannot be re-encoded; emitted as null"
     SList(inner) ->
       "json.array(" <> accessor <> ", " <> encoder_fn(inner) <> ")"
     SObject(name, _) -> snake_case_name(name) <> "_to_json(" <> accessor <> ")"
@@ -519,27 +543,43 @@ fn encoder_expr(schema: Schema, accessor: String) -> String {
 /// The function reference to pass to json.array / json.nullable
 /// e.g. `json.string` or `item_to_json`
 fn encoder_fn(schema: Schema) -> String {
+  encoder_fn_depth(schema, 0)
+}
+
+fn encoder_fn_depth(schema: Schema, depth: Int) -> String {
+  let var = lambda_var(depth)
   case schema {
     SString -> "json.string"
     SInt -> "json.int"
     SFloat -> "json.float"
     SBool -> "json.bool"
-    SDynamic -> "fn(_) { json.null() }"
+    SDynamic -> "fn(_) { json.null() }  // Dynamic values cannot be re-encoded"
     SObject(name, _) -> snake_case_name(name) <> "_to_json"
-    SList(_) ->
-      "fn(items) { json.array(items, "
-      <> encoder_fn_for_list_inner(schema)
+    SList(inner) ->
+      "fn("
+      <> var
+      <> ") { json.array("
+      <> var
+      <> ", "
+      <> encoder_fn_depth(inner, depth + 1)
       <> ") }"
     SNullable(inner) ->
-      "fn(v) { json.nullable(v, " <> encoder_fn(inner) <> ") }"
+      "fn("
+      <> var
+      <> ") { json.nullable("
+      <> var
+      <> ", "
+      <> encoder_fn_depth(inner, depth + 1)
+      <> ") }"
   }
 }
 
-/// helper for nested lists
-fn encoder_fn_for_list_inner(schema: Schema) -> String {
-  case schema {
-    SList(inner) -> encoder_fn(inner)
-    _ -> encoder_fn(schema)
+/// Distinct variable names for nested lambdas to avoid shadowing
+fn lambda_var(depth: Int) -> String {
+  case depth {
+    0 -> "items"
+    1 -> "inner"
+    _ -> "v" <> int.to_string(depth)
   }
 }
 

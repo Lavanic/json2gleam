@@ -267,10 +267,11 @@ pub fn array_merge_nested_objects_test() {
 
   let assert Ok(schema) = infer.infer_schema(json, "People")
 
+  // "People" is an irregular plural → singularized to "Person"
   schema
   |> should.equal(
     SList(
-      SObject("People", [
+      SObject("Person", [
         Field(
           "addr",
           "addr",
@@ -411,6 +412,85 @@ pub fn singularize_status_preserved_test() {
   let json = "[{\"code\": 200}]"
   let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "status")
   name |> should.equal("Status")
+}
+
+pub fn singularize_databases_test() {
+  // "databases" → "database" (drop "s", not "es")
+  let json = "[{\"name\": \"db\"}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "databases")
+  name |> should.equal("Database")
+}
+
+pub fn singularize_responses_test() {
+  // "responses" → "response" (drop "s", not "es")
+  let json = "[{\"code\": 200}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "responses")
+  name |> should.equal("Response")
+}
+
+pub fn singularize_cases_test() {
+  // "cases" → "case" (drop "s", not "es")
+  let json = "[{\"id\": 1}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "cases")
+  name |> should.equal("Case")
+}
+
+pub fn singularize_licenses_test() {
+  // "licenses" → "license" (drop "s", not "es")
+  let json = "[{\"key\": \"mit\"}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "licenses")
+  name |> should.equal("License")
+}
+
+pub fn singularize_people_test() {
+  // "people" → "person" (irregular)
+  let json = "[{\"name\": \"a\"}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "people")
+  name |> should.equal("Person")
+}
+
+pub fn singularize_children_test() {
+  // "children" → "child" (irregular)
+  let json = "[{\"name\": \"a\"}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "children")
+  name |> should.equal("Child")
+}
+
+pub fn singularize_metadata_test() {
+  // "metadata" is invariant → stays "Metadata"
+  let json = "[{\"key\": \"val\"}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "metadata")
+  name |> should.equal("Metadata")
+}
+
+pub fn singularize_equipment_test() {
+  // "equipment" is invariant → stays "Equipment"
+  let json = "[{\"id\": 1}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "equipment")
+  name |> should.equal("Equipment")
+}
+
+pub fn singularize_archives_test() {
+  // "archives" should NOT match ves$ rule → just drop "s" → "archive"
+  let json = "[{\"id\": 1}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "archives")
+  name |> should.equal("Archive")
+}
+
+pub fn singularize_heroes_test() {
+  // "heroes" ends in "oes" → drop "es" → "hero"
+  let json = "[{\"name\": \"a\"}]"
+  let assert Ok(SList(SObject(name, _))) = infer.infer_schema(json, "heroes")
+  name |> should.equal("Hero")
+}
+
+pub fn no_singularize_option_test() {
+  // With singularize disabled, array element names are NOT singularized
+  let json = "[{\"id\": 1}]"
+  let opts = infer.InferOptions(singularize: False)
+  let assert Ok(SList(SObject(name, _))) =
+    infer.infer_schema_with_options(json, "items", opts)
+  name |> should.equal("Items")
 }
 
 // --- edge case tests ---

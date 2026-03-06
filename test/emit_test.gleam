@@ -867,3 +867,56 @@ fn do_count(haystack: String, needle: String, acc: Int) -> Int {
     Error(_) -> acc
   }
 }
+
+// --- dynamic encoder comment test ---
+
+pub fn dynamic_encoder_comment_test() {
+  let schema =
+    SObject("Data", [
+      Field("unknown", "unknown", SDynamic, False),
+    ])
+
+  let result = emit.emit_encoders(schema)
+  result
+  |> string.contains("// Dynamic values cannot be re-encoded; emitted as null")
+  |> should.be_true()
+}
+
+// --- nested list encoder variable names ---
+
+pub fn nested_list_encoder_no_shadowing_test() {
+  // List(List(List(String))) should use distinct variable names at each depth
+  let schema =
+    SObject("Data", [
+      Field("cube", "cube", SList(SList(SList(SString))), False),
+    ])
+
+  let result = emit.emit_encoders(schema)
+  // Outer lambda uses "items", inner uses "inner" — no shadowing
+  result |> string.contains("fn(items)") |> should.be_true()
+  result |> string.contains("fn(inner)") |> should.be_true()
+}
+
+// --- acronym handling in function names ---
+
+pub fn acronym_decoder_name_test() {
+  let schema =
+    SObject("APIResponse", [
+      Field("data", "data", SString, False),
+    ])
+
+  let result = emit.emit_decoders(schema)
+  // Should be api_response_decoder, not a_p_i_response_decoder
+  result |> string.contains("api_response_decoder") |> should.be_true()
+}
+
+pub fn acronym_encoder_name_test() {
+  let schema =
+    SObject("APIResponse", [
+      Field("data", "data", SString, False),
+    ])
+
+  let result = emit.emit_encoders(schema)
+  // Should be api_response_to_json, not a_p_i_response_to_json
+  result |> string.contains("api_response_to_json") |> should.be_true()
+}
