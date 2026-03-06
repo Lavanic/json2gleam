@@ -24,12 +24,12 @@ pub type InferError {
 
 /// Options for controlling inference behaviour
 pub type InferOptions {
-  InferOptions(singularize: Bool)
+  InferOptions(singularize: Bool, numbers_as_float: Bool)
 }
 
-/// Default: singularize array element type names
+/// Default: singularize array element type names, distinguish int/float
 pub fn default_options() -> InferOptions {
-  InferOptions(singularize: True)
+  InferOptions(singularize: True, numbers_as_float: False)
 }
 
 /// give it a JSON string, get back a schema.
@@ -63,7 +63,11 @@ pub fn infer_schema_with_options(
 fn infer_value(value: Dynamic, name_hint: String, opts: InferOptions) -> Schema {
   case dynamic.classify(value) {
     "String" -> SString
-    "Int" -> SInt
+    "Int" ->
+      case opts.numbers_as_float {
+        True -> SFloat
+        False -> SInt
+      }
     "Float" -> SFloat
     "Bool" -> SBool
 

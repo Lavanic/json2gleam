@@ -487,10 +487,33 @@ pub fn singularize_heroes_test() {
 pub fn no_singularize_option_test() {
   // With singularize disabled, array element names are NOT singularized
   let json = "[{\"id\": 1}]"
-  let opts = infer.InferOptions(singularize: False)
+  let opts = infer.InferOptions(singularize: False, numbers_as_float: False)
   let assert Ok(SList(SObject(name, _))) =
     infer.infer_schema_with_options(json, "items", opts)
   name |> should.equal("Items")
+}
+
+pub fn numbers_as_float_option_test() {
+  // With numbers_as_float, JSON integers are inferred as Float
+  let json = "{\"score\": 1, \"rating\": 4.5}"
+  let opts = infer.InferOptions(singularize: True, numbers_as_float: True)
+  let assert Ok(SObject(_, fields)) =
+    infer.infer_schema_with_options(json, "Data", opts)
+  // Both should be SFloat
+  let assert [
+    Field("rating", "rating", SFloat, False),
+    Field("score", "score", SFloat, False),
+  ] = fields
+}
+
+pub fn numbers_as_float_default_off_test() {
+  // By default, integers stay as Int
+  let json = "{\"score\": 1, \"rating\": 4.5}"
+  let assert Ok(SObject(_, fields)) = infer.infer_schema(json, "Data")
+  let assert [
+    Field("rating", "rating", SFloat, False),
+    Field("score", "score", SInt, False),
+  ] = fields
 }
 
 // --- edge case tests ---

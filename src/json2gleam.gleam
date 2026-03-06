@@ -14,6 +14,7 @@ import json2gleam/infer
 import simplifile
 import stdin
 
+// keep in sync with gleam.toml
 const version = "0.1.0"
 
 pub fn main() {
@@ -64,6 +65,13 @@ fn run() -> glint.Command(Nil) {
       "Don't singularize array element type names (e.g. keep Users instead of User)",
     ),
   )
+  use numbers_as_float_flag <- glint.flag(
+    glint.bool_flag("numbers-as-float")
+    |> glint.flag_default(False)
+    |> glint.flag_help(
+      "Treat all JSON numbers as Float (avoids Int/Float ambiguity)",
+    ),
+  )
   use version_flag <- glint.flag(
     glint.bool_flag("version")
     |> glint.flag_default(False)
@@ -102,6 +110,7 @@ fn run() -> glint.Command(Nil) {
   let no_encoders = result.unwrap(no_encoders_flag(flags), False)
   let no_decoders = result.unwrap(no_decoders_flag(flags), False)
   let no_singularize = result.unwrap(no_singularize_flag(flags), False)
+  let numbers_as_float = result.unwrap(numbers_as_float_flag(flags), False)
 
   // read JSON input
   let json_string = case file {
@@ -119,7 +128,10 @@ fn run() -> glint.Command(Nil) {
 
   // infer schema
   let infer_options =
-    infer.InferOptions(singularize: !no_singularize)
+    infer.InferOptions(
+      singularize: !no_singularize,
+      numbers_as_float: numbers_as_float,
+    )
   let schema = case infer.infer_schema_with_options(json_string, root_name, infer_options) {
     Ok(s) -> s
     Error(infer.EmptyInput) -> {
@@ -180,7 +192,7 @@ fn run() -> glint.Command(Nil) {
 fn read_stdin() -> String {
   stdin.read_lines()
   |> yielder.to_list()
-  |> string.join("")
+  |> string.join("\n")
 }
 
 /// Read a single JSON file
