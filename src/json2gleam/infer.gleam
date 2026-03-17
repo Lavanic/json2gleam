@@ -12,7 +12,7 @@ import gleam/list
 import gleam/string
 import json2gleam/schema.{
   type Field, type Schema, Field, SBool, SDynamic, SFloat, SInt, SList,
-  SNullable, SObject, SString,
+  SNullable, SObject, SString, is_reserved,
 }
 import justin
 
@@ -205,106 +205,17 @@ fn clean_identifier(s: String) -> String {
   |> string.concat()
 }
 
+const alphanumeric = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+const digits = "0123456789"
+
 fn is_alphanumeric(c: String) -> Bool {
-  case c {
-    "a"
-    | "b"
-    | "c"
-    | "d"
-    | "e"
-    | "f"
-    | "g"
-    | "h"
-    | "i"
-    | "j"
-    | "k"
-    | "l"
-    | "m"
-    | "n"
-    | "o"
-    | "p"
-    | "q"
-    | "r"
-    | "s"
-    | "t"
-    | "u"
-    | "v"
-    | "w"
-    | "x"
-    | "y"
-    | "z" -> True
-    "A"
-    | "B"
-    | "C"
-    | "D"
-    | "E"
-    | "F"
-    | "G"
-    | "H"
-    | "I"
-    | "J"
-    | "K"
-    | "L"
-    | "M"
-    | "N"
-    | "O"
-    | "P"
-    | "Q"
-    | "R"
-    | "S"
-    | "T"
-    | "U"
-    | "V"
-    | "W"
-    | "X"
-    | "Y"
-    | "Z" -> True
-    "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" -> True
-    _ -> False
-  }
+  string.contains(alphanumeric, c)
 }
 
 fn starts_with_digit(s: String) -> Bool {
   case string.first(s) {
-    Ok("0")
-    | Ok("1")
-    | Ok("2")
-    | Ok("3")
-    | Ok("4")
-    | Ok("5")
-    | Ok("6")
-    | Ok("7")
-    | Ok("8")
-    | Ok("9") -> True
-    _ -> False
-  }
-}
-
-/// Gleam reserved words, if a field name matches, we add an underscore
-fn is_reserved(name: String) -> Bool {
-  case name {
-    "as"
-    | "assert"
-    | "auto"
-    | "case"
-    | "const"
-    | "delegate"
-    | "derive"
-    | "echo"
-    | "else"
-    | "fn"
-    | "if"
-    | "implement"
-    | "import"
-    | "let"
-    | "macro"
-    | "opaque"
-    | "panic"
-    | "pub"
-    | "test"
-    | "todo"
-    | "type"
-    | "use" -> True
+    Ok(c) -> string.contains(digits, c)
     _ -> False
   }
 }

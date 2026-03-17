@@ -15,6 +15,36 @@ pub type Schema {
   SObject(name: String, fields: List(Field))
 }
 
+/// Check if a name is a Gleam reserved word
+/// shared between infer (field names) and emit (encoder params)
+pub fn is_reserved(name: String) -> Bool {
+  case name {
+    "as"
+    | "assert"
+    | "auto"
+    | "case"
+    | "const"
+    | "delegate"
+    | "derive"
+    | "echo"
+    | "else"
+    | "fn"
+    | "if"
+    | "implement"
+    | "import"
+    | "let"
+    | "macro"
+    | "opaque"
+    | "panic"
+    | "pub"
+    | "test"
+    | "todo"
+    | "type"
+    | "use" -> True
+    _ -> False
+  }
+}
+
 /// A single field within an SObject schema.
 pub type Field {
   Field(

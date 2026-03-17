@@ -94,13 +94,10 @@ fn run() -> glint.Command(Nil) {
 
   // grab flag vals
   let root_name = case root_name_flag(flags) {
-    Ok("") | Error(_) -> {
-      io.println_error(
-        "error: --root-name is required (use PascalCase, e.g. MyType)\nUsage: json2gleam --root-name=MyType [--file=input.json]",
+    Ok("") | Error(_) ->
+      die(
+        "--root-name is required (use PascalCase, e.g. MyType)\nUsage: json2gleam --root-name=MyType [--file=input.json]",
       )
-      halt(1)
-      ""
-    }
     Ok(name) -> name
   }
 
@@ -119,10 +116,7 @@ fn run() -> glint.Command(Nil) {
   }
 
   case json_string {
-    "" -> {
-      io.println_error("error: no JSON input provided")
-      halt(1)
-    }
+    "" -> die("no JSON input provided")
     _ -> Nil
   }
 
@@ -132,19 +126,12 @@ fn run() -> glint.Command(Nil) {
       singularize: !no_singularize,
       numbers_as_float: numbers_as_float,
     )
-  let schema = case infer.infer_schema_with_options(json_string, root_name, infer_options) {
+  let schema = case
+    infer.infer_schema_with_options(json_string, root_name, infer_options)
+  {
     Ok(s) -> s
-    Error(infer.EmptyInput) -> {
-      io.println_error("error: empty JSON input")
-      halt(1)
-      // unreachable but makes the type checker happy
-      panic as "unreachable"
-    }
-    Error(infer.JsonParseError(msg)) -> {
-      io.println_error("error: " <> msg)
-      halt(1)
-      panic as "unreachable"
-    }
+    Error(infer.EmptyInput) -> die("empty JSON input")
+    Error(infer.JsonParseError(msg)) -> die(msg)
   }
 
   // build emit options
@@ -179,10 +166,7 @@ fn run() -> glint.Command(Nil) {
       }
       case simplifile.write(path, code) {
         Ok(_) -> io.println("wrote " <> path)
-        Error(_) -> {
-          io.println_error("error: could not write to " <> path)
-          halt(1)
-        }
+        Error(_) -> die("could not write to " <> path)
       }
     }
   }
@@ -199,14 +183,18 @@ fn read_stdin() -> String {
 fn read_file(path: String) -> String {
   case simplifile.read(path) {
     Ok(content) -> content
-    Error(_) -> {
-      io.println_error("error: could not read file " <> path)
-      halt(1)
-      ""
-    }
+    Error(_) -> die("could not read file " <> path)
   }
 }
 
 /// Exit w/ status code
 @external(erlang, "erlang", "halt")
 fn halt(code: Int) -> Nil
+
+/// Print an error message then exit. Returns any type so it
+/// satisfies the type checker
+fn die(msg: String) -> a {
+  io.println_error("error: " <> msg)
+  halt(1)
+  panic as "unreachable"
+}

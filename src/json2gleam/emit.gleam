@@ -2,11 +2,11 @@
 import gleam/dict
 import gleam/int
 import gleam/list
+import gleam/result
 import gleam/string
-import gleam/string_tree
 import json2gleam/schema.{
   type Field, type Schema, Field, SBool, SDynamic, SFloat, SInt, SList,
-  SNullable, SObject, SString,
+  SNullable, SObject, SString, is_reserved,
 }
 
 /// Emit all type definitions for a schema.
@@ -80,24 +80,18 @@ fn field_type_hint(field: Field) -> String {
   }
 }
 
-/// Check the field key against known patterns and return a hint comment
+/// Check the field key against known patterns and return a hint comment.
+/// Tries each pattern in order and returns the first match.
 fn detect_hint(key: String) -> String {
-  case is_datetime_key(key) {
-    True -> "  // ISO 8601 datetime"
-    False ->
-      case is_id_key(key) {
-        True -> "  // identifier"
-        False ->
-          case is_url_key(key) {
-            True -> "  // URL"
-            False ->
-              case is_email_key(key) {
-                True -> "  // email address"
-                False -> ""
-              }
-          }
-      }
-  }
+  [
+    #(is_datetime_key(key), "  // ISO 8601 datetime"),
+    #(is_id_key(key), "  // identifier"),
+    #(is_url_key(key), "  // URL"),
+    #(is_email_key(key), "  // email address"),
+  ]
+  |> list.find(fn(pair) { pair.0 == True })
+  |> result.map(fn(pair) { pair.1 })
+  |> result.unwrap("")
 }
 
 fn is_datetime_key(key: String) -> Bool {
@@ -246,8 +240,11 @@ fn build_type_imports(needs_option: Bool, needs_dynamic: Bool) -> String {
 /// Emit decoder functions for every obj type in the schema
 /// Uses the modern `use field <- decode.field(...)` style.
 pub fn emit_decoders(schema: Schema) -> String {
-  let types = collect_object_types(schema)
+  emit_decoders_from(collect_object_types(schema))
+}
 
+/// Emit decoders from a pre-collected list of object types
+fn emit_decoders_from(types: List(#(String, List(Field)))) -> String {
   types
   |> list.map(emit_single_decoder)
   |> string.join("\n\n")
@@ -257,18 +254,20 @@ pub fn emit_decoders(schema: Schema) -> String {
 fn emit_single_decoder(obj: #(String, List(Field))) -> String {
   let #(name, fields) = obj
   let fn_name = snake_case_name(name)
-  let st = string_tree.new()
 
-  let st =
-    st
-    |> string_tree.append("pub fn " <> fn_name <> "_decoder()")
-    |> string_tree.append(" -> decode.Decoder(" <> name <> ") {\n")
+  let header =
+    "pub fn "
+    <> fn_name
+    <> "_decoder()"
+    <> " -> decode.Decoder("
+    <> name
+    <> ") {\n"
 
   // each field gets a `use field_name <- decode.field/optional_field(...)` line
-  let st =
-    list.fold(fields, st, fn(acc, f) {
-      acc |> string_tree.append(emit_field_decoder_line(f))
-    })
+  let field_lines =
+    fields
+    |> list.map(emit_field_decoder_line)
+    |> string.concat()
 
   // final line: decode.success(TypeName(field1:, field2:, ...))
   let constructor = case fields {
@@ -282,54 +281,46 @@ fn emit_single_decoder(obj: #(String, List(Field))) -> String {
     }
   }
 
-  st
-  |> string_tree.append("  decode.success(" <> constructor <> ")\n}")
-  |> string_tree.to_string()
+  header <> field_lines <> "  decode.success(" <> constructor <> ")\n}"
 }
 
-/// Emit one `use field <- decode.field("key", decoder)` line
+/// Emit one `use field <- decode.field("key", decoder)` line.
+/// Optional fields use decode.optional_field (missing key → None).
+/// Nullable fields wrap the inner decoder in decode.optional.
+/// Optional + nullable collapses to a single Option layer.
 fn emit_field_decoder_line(field: Field) -> String {
-  case field.optional, field.schema {
-    // optional + nullable: use optional_field with decode.optional inside
-    True, SNullable(inner) ->
+  // Unwrap nullable to get the inner schema — both optional and nullable
+  // produce Option(T), so we don't need to distinguish them for the decoder arg
+  let #(inner_schema, is_nullable) = case field.schema {
+    SNullable(inner) -> #(inner, True)
+    other -> #(other, False)
+  }
+
+  let decoder = case field.optional || is_nullable {
+    True -> "decode.optional(" <> decoder_for_schema(inner_schema) <> ")"
+    False -> decoder_for_schema(inner_schema)
+  }
+
+  let field_fn = case field.optional {
+    True ->
       "  use "
       <> field.gleam_name
       <> " <- decode.optional_field(\""
       <> field.json_key
-      <> "\", option.None, decode.optional("
-      <> decoder_for_schema(inner)
-      <> "))\n"
-
-    // just optional (field might be missing, but when present it's not null)
-    True, other ->
-      "  use "
-      <> field.gleam_name
-      <> " <- decode.optional_field(\""
-      <> field.json_key
-      <> "\", option.None, decode.optional("
-      <> decoder_for_schema(other)
-      <> "))\n"
-
-    // nullable but always present
-    False, SNullable(inner) ->
-      "  use "
-      <> field.gleam_name
-      <> " <- decode.field(\""
-      <> field.json_key
-      <> "\", decode.optional("
-      <> decoder_for_schema(inner)
-      <> "))\n"
-
-    // normal required field
-    False, other ->
+      <> "\", option.None, "
+      <> decoder
+      <> ")\n"
+    False ->
       "  use "
       <> field.gleam_name
       <> " <- decode.field(\""
       <> field.json_key
       <> "\", "
-      <> decoder_for_schema(other)
+      <> decoder
       <> ")\n"
   }
+
+  field_fn
 }
 
 /// Map a schema to the decoder expression string
@@ -432,30 +423,9 @@ fn is_uppercase(c: String) -> Bool {
 
 /// Make sure a function parameter name doesn't collide with Gleam reserved words
 fn sanitize_param(name: String) -> String {
-  case name {
-    "as"
-    | "assert"
-    | "auto"
-    | "case"
-    | "const"
-    | "delegate"
-    | "derive"
-    | "echo"
-    | "else"
-    | "fn"
-    | "if"
-    | "implement"
-    | "import"
-    | "let"
-    | "macro"
-    | "opaque"
-    | "panic"
-    | "pub"
-    | "test"
-    | "todo"
-    | "type"
-    | "use" -> name <> "_val"
-    _ -> name
+  case is_reserved(name) {
+    True -> name <> "_val"
+    False -> name
   }
 }
 
@@ -463,8 +433,11 @@ fn sanitize_param(name: String) -> String {
 
 /// Emit _to_json() functions for every object type in the schema
 pub fn emit_encoders(schema: Schema) -> String {
-  let types = collect_object_types(schema)
+  emit_encoders_from(collect_object_types(schema))
+}
 
+/// Emit encoders from a pre-collected list of object types
+fn emit_encoders_from(types: List(#(String, List(Field)))) -> String {
   types
   |> list.map(emit_single_encoder)
   |> string.join("\n\n")
@@ -506,20 +479,20 @@ fn emit_field_encoder_line(field: Field, param: String) -> String {
   "    #(\"" <> field.json_key <> "\", " <> encoder <> ")"
 }
 
-/// Figure out the right json.xxx call for a field
+/// Figure out the right json.xxx call for a field.
+/// Optional or nullable -> json.nullable (collapses to single Option layer).
+/// Otherwise -> direct encoder expression.
 fn encoder_for_field(field: Field, accessor: String) -> String {
-  case field.optional, field.schema {
-    // optional + nullable — collapse to single json.nullable
-    True, SNullable(inner) ->
-      "json.nullable(" <> accessor <> ", " <> encoder_fn(inner) <> ")"
-    // just optional
-    True, other ->
-      "json.nullable(" <> accessor <> ", " <> encoder_fn(other) <> ")"
-    // nullable but always present
-    False, SNullable(inner) ->
-      "json.nullable(" <> accessor <> ", " <> encoder_fn(inner) <> ")"
-    // normal field
-    False, other -> encoder_expr(other, accessor)
+  let inner = case field.schema {
+    SNullable(s) -> s
+    other -> other
+  }
+
+  case field.optional || field.schema != inner {
+    // optional, nullable, or both -> json.nullable
+    True -> "json.nullable(" <> accessor <> ", " <> encoder_fn(inner) <> ")"
+    // normal required field
+    False -> encoder_expr(inner, accessor)
   }
 }
 
@@ -530,7 +503,8 @@ fn encoder_expr(schema: Schema, accessor: String) -> String {
     SInt -> "json.int(" <> accessor <> ")"
     SFloat -> "json.float(" <> accessor <> ")"
     SBool -> "json.bool(" <> accessor <> ")"
-    SDynamic -> "json.null()  // Dynamic values cannot be re-encoded; emitted as null"
+    SDynamic ->
+      "json.null()  // Dynamic values cannot be re-encoded; emitted as null"
     SList(inner) ->
       "json.array(" <> accessor <> ", " <> encoder_fn(inner) <> ")"
     SObject(name, _) -> snake_case_name(name) <> "_to_json(" <> accessor <> ")"
@@ -614,7 +588,8 @@ pub fn emit_module(schema: Schema, options: EmitOptions) -> String {
 /// Generates a comment explaining the shape, a type alias, and a decoder.
 fn emit_toplevel_non_object(schema: Schema, options: EmitOptions) -> String {
   let type_str = schema_type_string(schema)
-  let has_objects = collect_object_types(schema) != []
+  let obj_types = collect_object_types(schema)
+  let has_objects = obj_types != []
   let needs_option = uses_option(schema)
   let needs_dynamic = uses_dynamic(schema)
 
@@ -629,7 +604,7 @@ fn emit_toplevel_non_object(schema: Schema, options: EmitOptions) -> String {
   let comment = "/// The top-level JSON value is: " <> type_str
 
   // Nested object types (e.g. List(Item) needs the Item type)
-  let types = emit_types_raw(schema)
+  let types = emit_types_from(obj_types)
 
   let decoder = case options.decoders {
     True -> {
@@ -645,13 +620,13 @@ fn emit_toplevel_non_object(schema: Schema, options: EmitOptions) -> String {
 
   // Nested object decoders
   let nested_decoders = case options.decoders && has_objects {
-    True -> emit_decoders(schema)
+    True -> emit_decoders_from(obj_types)
     False -> ""
   }
 
   // Nested object encoders
   let nested_encoders = case options.encoders && has_objects {
-    True -> emit_encoders(schema)
+    True -> emit_encoders_from(obj_types)
     False -> ""
   }
 
@@ -665,7 +640,8 @@ fn emit_toplevel_non_object(schema: Schema, options: EmitOptions) -> String {
 fn emit_object_module(schema: Schema, options: EmitOptions) -> String {
   let needs_option = uses_option(schema)
   let needs_dynamic = uses_dynamic(schema)
-  let has_objects = collect_object_types(schema) != []
+  let obj_types = collect_object_types(schema)
+  let has_objects = obj_types != []
 
   let imports =
     build_module_imports(
@@ -675,13 +651,13 @@ fn emit_object_module(schema: Schema, options: EmitOptions) -> String {
       options.encoders && has_objects,
     )
 
-  let types = emit_types_raw(schema)
+  let types = emit_types_from(obj_types)
   let decoders = case options.decoders && has_objects {
-    True -> emit_decoders(schema)
+    True -> emit_decoders_from(obj_types)
     False -> ""
   }
   let encoders = case options.encoders && has_objects {
-    True -> emit_encoders(schema)
+    True -> emit_encoders_from(obj_types)
     False -> ""
   }
 
@@ -691,9 +667,8 @@ fn emit_object_module(schema: Schema, options: EmitOptions) -> String {
   |> string.append("\n")
 }
 
-/// Emit just type defs without their own imports (for use in emit_module)
-fn emit_types_raw(schema: Schema) -> String {
-  let types = collect_object_types(schema)
+/// Emit just type defs from a pre-collected list (for use in emit_module)
+fn emit_types_from(types: List(#(String, List(Field)))) -> String {
   types
   |> list.map(emit_single_type)
   |> string.join("\n\n")
