@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          gleam-version: "1.19.2"
+      - run: gleam test
+
+      # Generated code must compile against the latest stdlib + gleam_json
+      - name: Generated code compiles
+        run: |
+          gleam new /tmp/smoke --skip-git --skip-github
+          (cd /tmp/smoke && gleam add gleam_json)
+          for f in test_data/*.json; do
+            name=$(basename "$f" .json)
+            gleam run -- --file="$f" --out="/tmp/smoke/src/gen_$name.gleam"
+          done
+          (cd /tmp/smoke && gleam check)
