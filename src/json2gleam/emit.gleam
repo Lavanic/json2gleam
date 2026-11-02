@@ -503,8 +503,7 @@ fn encoder_expr(schema: Schema, accessor: String) -> String {
     SInt -> "json.int(" <> accessor <> ")"
     SFloat -> "json.float(" <> accessor <> ")"
     SBool -> "json.bool(" <> accessor <> ")"
-    SDynamic ->
-      "json.null()  // Dynamic values cannot be re-encoded; emitted as null"
+    SDynamic -> "json.null()"
     SList(inner) ->
       "json.array(" <> accessor <> ", " <> encoder_fn(inner) <> ")"
     SObject(name, _) -> snake_case_name(name) <> "_to_json(" <> accessor <> ")"
@@ -527,7 +526,7 @@ fn encoder_fn_depth(schema: Schema, depth: Int) -> String {
     SInt -> "json.int"
     SFloat -> "json.float"
     SBool -> "json.bool"
-    SDynamic -> "fn(_) { json.null() }  // Dynamic values cannot be re-encoded"
+    SDynamic -> "fn(_) { json.null() }"
     SObject(name, _) -> snake_case_name(name) <> "_to_json"
     SList(inner) ->
       "fn("

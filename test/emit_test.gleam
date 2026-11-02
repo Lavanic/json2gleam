@@ -868,18 +868,23 @@ fn do_count(haystack: String, needle: String, acc: Int) -> Int {
   }
 }
 
-// --- dynamic encoder comment test ---
+// --- dynamic encoder test ---
 
-pub fn dynamic_encoder_comment_test() {
+// Regression: inline `//` comments after dynamic encoders commented out the
+// rest of the line, producing code that failed to parse.
+pub fn dynamic_encoder_no_inline_comment_test() {
   let schema =
     SObject("Data", [
       Field("unknown", "unknown", SDynamic, False),
+      Field("maybe", "maybe", SNullable(SDynamic), False),
     ])
 
   let result = emit.emit_encoders(schema)
+  result |> string.contains("#(\"unknown\", json.null()),") |> should.be_true()
   result
-  |> string.contains("// Dynamic values cannot be re-encoded; emitted as null")
+  |> string.contains("json.nullable(data.maybe, fn(_) { json.null() })")
   |> should.be_true()
+  result |> string.contains("//") |> should.be_false()
 }
 
 // --- nested list encoder variable names ---
